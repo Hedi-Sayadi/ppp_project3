@@ -15,6 +15,11 @@ static int nBodies;
 static int imgStep;
 static int px, py;
 
+// Local index range for this MPI process
+static int localStart;
+static int localEnd;
+static int localCount;
+
 /*
  * Compute the acceleration body j exercises on body i.
  * The acceleration is added to accelsX[i] and accelsY[i].
@@ -31,22 +36,22 @@ static void acceleration(int i, int j, long double *accelsX, long double *accels
 }
 
 /*
- * Update the position of each body for the next time step.
+ * Update the position of local bodies for the next time step.
  */
 static void update_positions() {
     #pragma omp parallel for
-    for (int i = 0; i < nBodies; ++i) {
+    for (int i = localStart; i < localEnd; ++i) {
         bodies[i].x += (bodies[i].vx + 0.5L * bodies[i].ax * deltaT) * deltaT;
         bodies[i].y += (bodies[i].vy + 0.5L * bodies[i].ay * deltaT) * deltaT;
     }
 }
 
 /*
- * Compute the accelerations for the next time step.
+ * Compute the accelerations for local bodies in the next time step.
  */
 static void compute_accelerations(long double *accelsX, long double *accelsY) {
     #pragma omp parallel for
-    for (int i = 0; i < nBodies; ++i) {
+    for (int i = localStart; i < localEnd; ++i) {
         accelsX[i] = 0.0L;
         accelsY[i] = 0.0L;
         for (int j = 0; j < nBodies; ++j) {
@@ -58,16 +63,124 @@ static void compute_accelerations(long double *accelsX, long double *accelsY) {
 }
 
 /*
- * Update the velocities for the next time step.
+ * Update the velocities for local bodies in the next time step.
  */
 static void update_velocities(long double *accelsX, long double *accelsY) {
     #pragma omp parallel for
-    for (int i = 0; i < nBodies; i++) {
+    for (int i = localStart; i < localEnd; i++) {
         bodies[i].vx += 0.5L * (bodies[i].ax + accelsX[i]) * deltaT;
         bodies[i].vy += 0.5L * (bodies[i].ay + accelsY[i]) * deltaT;
         bodies[i].ax = accelsX[i];
         bodies[i].ay = accelsY[i];
     }
+}
+
+/*
+ * Gather all body data to all MPI processes.
+ */
+static void gather_all_bodies() {
+    int *counts = (int *)malloc(np * sizeof(int));
+    int *displs = (int *)malloc(np * sizeof(int));
+    for (int p = 0; p < np; ++p) {
+        int pStart = p * nBodies / np;
+        int pEnd = (p + 1) * nBodies / np;
+        counts[p] = pEnd - pStart;
+        displs[p] = pStart;
+    }
+
+    // Allocate temporary arrays for gathering
+    long double *localX = (long double *)malloc(localCount * sizeof(long double));
+    long double *localY = (long double *)malloc(localCount * sizeof(long double));
+    long double *localVX = (long double *)malloc(localCount * sizeof(long double));
+    long double *localVY = (long double *)malloc(localCount * sizeof(long double));
+    long double *localAX = (long double *)malloc(localCount * sizeof(long double));
+    long double *localAY = (long double *)malloc(localCount * sizeof(long double));
+
+    for (int i = 0; i < localCount; ++i) {
+        localX[i] = bodies[localStart + i].x;
+        localY[i] = bodies[localStart + i].y;
+        localVX[i] = bodies[localStart + i].vx;
+        localVY[i] = bodies[localStart + i].vy;
+        localAX[i] = bodies[localStart + i].ax;
+        localAY[i] = bodies[localStart + i].ay;
+    }
+
+    // Allocate global temporary arrays for receiving
+    long double *allX = (long double *)malloc(nBodies * sizeof(long double));
+    long double *allY = (long double *)malloc(nBodies * sizeof(long double));
+    long double *allVX = (long double *)malloc(nBodies * sizeof(long double));
+    long double *allVY = (long double *)malloc(nBodies * sizeof(long double));
+    long double *allAX = (long double *)malloc(nBodies * sizeof(long double));
+    long double *allAY = (long double *)malloc(nBodies * sizeof(long double));
+
+    MPI_Allgatherv(localX, localCount, MPI_LONG_DOUBLE,
+                   allX, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+    MPI_Allgatherv(localY, localCount, MPI_LONG_DOUBLE,
+                   allY, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+    MPI_Allgatherv(localVX, localCount, MPI_LONG_DOUBLE,
+                   allVX, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+    MPI_Allgatherv(localVY, localCount, MPI_LONG_DOUBLE,
+                   allVY, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+    MPI_Allgatherv(localAX, localCount, MPI_LONG_DOUBLE,
+                   allAX, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+    MPI_Allgatherv(localAY, localCount, MPI_LONG_DOUBLE,
+                   allAY, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+
+    // Copy back to struct array
+    for (int i = 0; i < nBodies; ++i) {
+        bodies[i].x = allX[i];
+        bodies[i].y = allY[i];
+        bodies[i].vx = allVX[i];
+        bodies[i].vy = allVY[i];
+        bodies[i].ax = allAX[i];
+        bodies[i].ay = allAY[i];
+    }
+
+    free(localX);
+    free(localY);
+    free(localVX);
+    free(localVY);
+    free(localAX);
+    free(localAY);
+    free(allX);
+    free(allY);
+    free(allVX);
+    free(allVY);
+    free(allAX);
+    free(allAY);
+    free(counts);
+    free(displs);
+}
+
+/*
+ * Gather all accelerations to all MPI processes.
+ */
+static void gather_all_accelerations(long double *accelsX, long double *accelsY) {
+    int *counts = (int *)malloc(np * sizeof(int));
+    int *displs = (int *)malloc(np * sizeof(int));
+    for (int p = 0; p < np; ++p) {
+        int pStart = p * nBodies / np;
+        int pEnd = (p + 1) * nBodies / np;
+        counts[p] = pEnd - pStart;
+        displs[p] = pStart;
+    }
+
+    long double *localAccX = (long double *)malloc(localCount * sizeof(long double));
+    long double *localAccY = (long double *)malloc(localCount * sizeof(long double));
+    for (int i = 0; i < localCount; ++i) {
+        localAccX[i] = accelsX[localStart + i];
+        localAccY[i] = accelsY[localStart + i];
+    }
+
+    MPI_Allgatherv(localAccX, localCount, MPI_LONG_DOUBLE,
+                   accelsX, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+    MPI_Allgatherv(localAccY, localCount, MPI_LONG_DOUBLE,
+                   accelsY, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+
+    free(localAccX);
+    free(localAccY);
+    free(counts);
+    free(displs);
 }
 
 void compute_parallel(struct TaskInput *TI) {
@@ -113,12 +226,18 @@ void compute_parallel(struct TaskInput *TI) {
         // Part (a): OpenMP parallelism
         // Part (b): MPI parallelism
         
+        // Compute local range for this MPI process
+        localStart = self * nBodies / np;
+        localEnd = (self + 1) * nBodies / np;
+        localCount = localEnd - localStart;
+        
         // Accelerations in the next time step
         long double *accelsX = (long double *)malloc(nBodies * sizeof(long double));
         long double *accelsY = (long double *)malloc(nBodies * sizeof(long double));
         
         // Preparation: compute accelerations in time step 0
         compute_accelerations(accelsX, accelsY);
+        gather_all_accelerations(accelsX, accelsY);
         for (int i = 0; i < nBodies; ++i) {
             bodies[i].ax = accelsX[i];
             bodies[i].ay = accelsY[i];
@@ -135,12 +254,15 @@ void compute_parallel(struct TaskInput *TI) {
             
             // Compute positions for next time step
             update_positions();
+            gather_all_bodies();
             
             // Compute accelerations for next time step
             compute_accelerations(accelsX, accelsY);
+            gather_all_accelerations(accelsX, accelsY);
             
             // Compute velocities for next time step
             update_velocities(accelsX, accelsY);
+            gather_all_bodies();
         }
         
         if (imgStep > 0 && TI->nSteps % imgStep == 0) {
