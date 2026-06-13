@@ -1,0 +1,130 @@
+Fakult¨ at f¨ ur Informatik und Mathematik Summer semester 2026
+Dr. Armin Gr¨ oßlinger
+Exercises for Lecture: Practical Parallel Programming
+Project 3 (Simulation)
+Problem 1(Physical Simulation)[25+5 Points]
+In this project, we will study the motion of bodies under the influence of (Newtonian) gravity caused
+by the bodies’ masses. In general, the problem cannot be solved analytically; therefore, simulation is of
+practical relevance.
+LetnbodiesK 1, . . . ,K nwith the massesm 1, . . . ,m nbe given. Our simulation is 2-dimensional, i.e., every
+body is associated with a 2-dimensional position vector⃗xand a 2-dimensional velocity vector⃗v.
+The simulation is performed in discrete steps of equal length ∆t. In every steps, the simulation computes
+from the position and velocity vectors⃗x(s)
+i,⃗v(s)
+ithe position and velocity vectors⃗x(s+1)
+i,⃗v(s+1)
+ifor the
+next simulation steps+ 1 (see the formulas below).
+In/scratch/ppp2026/3/you can find data for the initial situation (format description below) and a
+skeleton for implementation. The user can choose the number of simulation stepsS, the parameter ∆t
+and the initial situation (by a file). The final situation of the simulation is saved to a file in the same
+format. At the end, the program prints the interaction raten·(n−1)·S
+T(whereTis the total time of
+the simulation), i.e., the average number of interactions per time unit. The total momentumPn
+i=1mi⃗vi
+should remain approximately constant during the simulation (more precisely, the relative change should
+be close to 0).
+(a) Implement (inparallel.c) then-body simulation with OpenMP parallelism. [4 Points]
+(b) Add MPI parallelism to your implementation. [10 Points]
+(c) Use Newton’s third law [4 Points]
+mi·⃗ai,j=−m j·⃗aj,i
+to reduce the number of local computations in each MPI process. In other words: change the
+OpenMP part of your implementation to save almost half of the computations that affect “local”
+bodies only.
+(d) Use Newton’s third law globally, i.e., also between MPI processes to save almost half of the compu-
+tations over all bodies. [6 Points]
+(e) Add the functionality to save images with the current positions of the bodies (as PBM or PGM
+images) everydsimulation steps (with user-specifiedd). This way, small animations can be created
+(use, e.g., the commandanimateto play the animations). [1 Point]
+(f) (Only for Master:) [5 Points]
+To accelerate the simulation further (trading precision for speed), one can replace bodiesK 1, . . . ,K l
+that are close together by a surrogate body which has a mass equal to the sum of the masses of the
+individual bodiesM=Pl
+i=1miand is located at the center of gravity
+1
+MlX
+i=1mi⃗xi
+of the individual bodies. When computing the gravitational influence on far away bodies, one uses
+the surrogate body instead of the individual bodies.
+Arrange the MPI processes in a two-dimensional grid withp xandp yprocesses in the x- and y-
+dimensions. The main program computesp xandp ysuch thatp x·pyequals the total numberpof
+MPI processes andp y≤p x(cf. memberspxandpyin theTaskInputstructure).
+To group the bodies in groups, sort the bodies by theirx-coordinates and formp x(equally-sized)
+partitions according to thex-coordinate. In each partition, sort the bodies by theiry-coordinate and
+formp ysub-partitions. (In total, this yieldsp x·pysub-partitions.) Every sub-partition is assigned
+to an MPI process and each process computes a surrogate body for “its” bodies and communicates
+the center of mass and the total mass to the other processes.
+In the acceleration computations, the usual computations (including Newton’s third law) are per-
+formed locally (within each MPI process); globally (between MPI processes), the surrogate bodies
+are used to compute the influence on each local body. (Newton’s third law is not used non-locally.)
+Note: due to the approximation, the momentum can differ greatly and the motion of the bodies may
+become unphysical.
+Uselong double(96 bits) in the computations; the corresponding MPI datatype isMPI LONG DOUBLE. Do
+not modify theidfield in thebodystrutures, it is used to write the bodies to the output file in the same
+order as the input file.
+Upload your solution (fileparallel.conly) in ILIAS. Do not miss the deadline! Late submissions cannot
+be accepted due to legal regulations! Work on PPP projects is strictly one person (no teams)! Use of AI
+to produce or analyze code is not allowed!
+Data format:
+The initial and final configurations of the system is stored in a file with the following format. In the first
+row, the number of bodies is given. This is followed by one line per body which consists of 5 numbers:
+the mass (inkg), thex- andy-positions (inm), the velocity inx- andy-directions (inm
+s). Single-line
+comments are introduced by#. Example:
+2
+1.98e30 0 0 0 0 # sun
+5.977e24 1.496e11 0 0 29716 # earth
+Use this example (in filesun earth.dat) to test the (sequential) implementation. The earth should
+(almost) go around the sun in about 366 steps of 86400 seconds (= 1 day). Due to the imperfections in
+the simulation, the orbit increases with every revolution.
+Suitable parameters for the simulation (number of steps, duration of one step, image parameters) can be
+found as comments in the simulation files.
+Mechanics:
+According to Newton’s theory of gravity, a bodyK jexercises a gravitational acceleration⃗a(s)
+i,jon another
+bodyK i(i̸=j) in time steps:
+⃗a(s)
+i,j=G·mj·(⃗x(s)
+j−⃗x(s)
+i)
+|⃗x(s)
+j−⃗x(s)
+i|3
+The gravitational constantGhas the valueG≈6,674·10−11 m3
+kg·s2. The total acceleration⃗a(s)
+ion body
+Kiis:
+⃗a(s)
+i=X
+1≤j≤n
+i̸=j⃗a(s)
+i,j
+The approximations for the new positions⃗x(s+1)
+iand the new velocities⃗v(s+1)
+iin the next simulation step
+s+ 1 are computed from⃗x(s)
+i,⃗v(s)
+i,⃗a(s)
+i,⃗a(s+1)
+iand ∆t:
+⃗x(s+1)
+i=⃗x(s)
+i+⃗v(s)
+i·∆t+1
+2·⃗a(s)
+i·(∆t)2
+⃗v(s+1)
+i=⃗v(s)
+i+1
+2(⃗a(s)
+i+⃗a(s+1)
+i)·∆t
+Since⃗v(s+1)
+x depends on both⃗a(s)
+iand⃗a(s+1)
+x, the values for the next simulation steps+ 1 are computed
+in the following order: first⃗x(s+1)
+i, then⃗a(s+1)
+iand finally⃗v(s+1)
+i.
+Submission due: Monday, June 15, 2026 at 18:00 via ILIAS

@@ -1,0 +1,10 @@
+##
+# The sun and the earth (which revolves around the sun).
+##
+# Duration of a simulation step: 86400 seconds (= 1 day)
+# Number of steps: 366 (approx. 1 year)
+# Image area: 4e11 meters wide and high with center at (0,0)
+##
+2
+1.98e30   0         0  0  0       # sun
+5.977e24  1.496e11  0  0  29716   # earth
