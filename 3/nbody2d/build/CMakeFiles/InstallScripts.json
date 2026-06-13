@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/MSI/Desktop/bib_passau/Summer 26/Practical Parallel Programming/Project3/3/nbody2d/build/cmake_install.cmake",
+		"C:/Users/MSI/Desktop/bib_passau/Summer 26/Practical Parallel Programming/Project3/3/nbody2d/build/src/cmake_install.cmake",
+		"C:/Users/MSI/Desktop/bib_passau/Summer 26/Practical Parallel Programming/Project3/3/nbody2d/build/src/nbody/cmake_install.cmake",
+		"C:/Users/MSI/Desktop/bib_passau/Summer 26/Practical Parallel Programming/Project3/3/nbody2d/build/src/ppp_pnm/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

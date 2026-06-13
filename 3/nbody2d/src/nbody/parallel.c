@@ -192,6 +192,7 @@ static void gather_all_bodies() {
         displs[p] = pStart;
     }
 
+    // Allocate temporary arrays for gathering
     long double *localX = (long double *)malloc(localCount * sizeof(long double));
     long double *localY = (long double *)malloc(localCount * sizeof(long double));
     long double *localVX = (long double *)malloc(localCount * sizeof(long double));
@@ -208,18 +209,36 @@ static void gather_all_bodies() {
         localAY[i] = bodies[localStart + i].ay;
     }
 
+    // Allocate global temporary arrays for receiving
+    long double *allX = (long double *)malloc(nBodies * sizeof(long double));
+    long double *allY = (long double *)malloc(nBodies * sizeof(long double));
+    long double *allVX = (long double *)malloc(nBodies * sizeof(long double));
+    long double *allVY = (long double *)malloc(nBodies * sizeof(long double));
+    long double *allAX = (long double *)malloc(nBodies * sizeof(long double));
+    long double *allAY = (long double *)malloc(nBodies * sizeof(long double));
+
     MPI_Allgatherv(localX, localCount, MPI_LONG_DOUBLE,
-                   &bodies[0].x, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+                   allX, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
     MPI_Allgatherv(localY, localCount, MPI_LONG_DOUBLE,
-                   &bodies[0].y, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+                   allY, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
     MPI_Allgatherv(localVX, localCount, MPI_LONG_DOUBLE,
-                   &bodies[0].vx, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+                   allVX, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
     MPI_Allgatherv(localVY, localCount, MPI_LONG_DOUBLE,
-                   &bodies[0].vy, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+                   allVY, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
     MPI_Allgatherv(localAX, localCount, MPI_LONG_DOUBLE,
-                   &bodies[0].ax, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+                   allAX, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
     MPI_Allgatherv(localAY, localCount, MPI_LONG_DOUBLE,
-                   &bodies[0].ay, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+                   allAY, counts, displs, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
+
+    // Copy back to struct array
+    for (int i = 0; i < nBodies; ++i) {
+        bodies[i].x = allX[i];
+        bodies[i].y = allY[i];
+        bodies[i].vx = allVX[i];
+        bodies[i].vy = allVY[i];
+        bodies[i].ax = allAX[i];
+        bodies[i].ay = allAY[i];
+    }
 
     free(localX);
     free(localY);
@@ -227,6 +246,12 @@ static void gather_all_bodies() {
     free(localVY);
     free(localAX);
     free(localAY);
+    free(allX);
+    free(allY);
+    free(allVX);
+    free(allVY);
+    free(allAX);
+    free(allAY);
     free(counts);
     free(displs);
 }
