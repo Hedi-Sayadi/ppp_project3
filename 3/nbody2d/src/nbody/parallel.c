@@ -36,6 +36,26 @@ static void acceleration(int i, int j, long double *accelsX, long double *accels
 }
 
 /*
+ * Apply symmetric acceleration using Newton's 3rd law: mi*ai = -mj*aj
+ * When computing j on i, also apply the opposite force on j.
+ */
+static void acceleration_symmetric(int i, int j, long double *accelsX, long double *accelsY) {
+    long double dist_x = bodies[j].x - bodies[i].x;
+    long double dist_y = bodies[j].y - bodies[i].y;
+    long double h = dist_x * dist_x + dist_y * dist_y;
+    if (h < 1e-30L) return;
+    long double r3 = h * sqrtl(h);
+    long double f_x = G * dist_x / r3;
+    long double f_y = G * dist_y / r3;
+    accelsX[i] += f_x * bodies[j].mass;
+    accelsY[i] += f_y * bodies[j].mass;
+#pragma omp atomic
+    accelsX[j] -= f_x * bodies[i].mass;
+#pragma omp atomic
+    accelsY[j] -= f_y * bodies[i].mass;
+}
+
+/*
  * Update the position of local bodies for the next time step.
  */
 static void update_positions() {
@@ -58,6 +78,38 @@ static void compute_accelerations(long double *accelsX, long double *accelsY) {
             if (i != j) {
                 acceleration(i, j, accelsX, accelsY);
             }
+        }
+    }
+}
+
+/*
+ * Compute accelerations with Newton's 3rd law locally.
+ * Uses symmetry for bodies within the same MPI process.
+ */
+static void compute_accelerations_local_n3(long double *accelsX, long double *accelsY) {
+    // Initialize all accelerations
+    #pragma omp parallel for
+    for (int i = 0; i < nBodies; ++i) {
+        accelsX[i] = 0.0L;
+        accelsY[i] = 0.0L;
+    }
+    
+    // Compute local interactions with Newton's 3rd law
+    #pragma omp parallel for
+    for (int i = localStart; i < localEnd; ++i) {
+        for (int j = i + 1; j < localEnd; ++j) {
+            acceleration_symmetric(i, j, accelsX, accelsY);
+        }
+    }
+    
+    // Compute interactions between local and remote bodies
+    #pragma omp parallel for
+    for (int i = localStart; i < localEnd; ++i) {
+        for (int j = 0; j < localStart; ++j) {
+            acceleration(i, j, accelsX, accelsY);
+        }
+        for (int j = localEnd; j < nBodies; ++j) {
+            acceleration(i, j, accelsX, accelsY);
         }
     }
 }
@@ -214,6 +266,51 @@ void compute_parallel(struct TaskInput *TI) {
             printf("Running with Newton's third law locally.\n");
         }
         // Part (c): local Newton's 3rd law
+        
+        // Compute local range for this MPI process
+        localStart = self * nBodies / np;
+        localEnd = (self + 1) * nBodies / np;
+        localCount = localEnd - localStart;
+        
+        long double *accelsX = (long double *)malloc(nBodies * sizeof(long double));
+        long double *accelsY = (long double *)malloc(nBodies * sizeof(long double));
+        
+        // Preparation: compute accelerations in time step 0
+        compute_accelerations_local_n3(accelsX, accelsY);
+        gather_all_accelerations(accelsX, accelsY);
+        for (int i = 0; i < nBodies; ++i) {
+            bodies[i].ax = accelsX[i];
+            bodies[i].ay = accelsY[i];
+        }
+        
+        for (int step = 0; step < TI->nSteps; ++step) {
+            if (imgStep > 0 && step % imgStep == 0) {
+                saveImage(step / imgStep, bodies, nBodies);
+            }
+            
+            if (debug && self == 0) {
+                printf("Time step %d\n", step);
+            }
+            
+            // Compute positions for next time step
+            update_positions();
+            gather_all_bodies();
+            
+            // Compute accelerations with local Newton's 3rd law
+            compute_accelerations_local_n3(accelsX, accelsY);
+            gather_all_accelerations(accelsX, accelsY);
+            
+            // Compute velocities for next time step
+            update_velocities(accelsX, accelsY);
+            gather_all_bodies();
+        }
+        
+        if (imgStep > 0 && TI->nSteps % imgStep == 0) {
+            saveImage(TI->nSteps / imgStep, bodies, nBodies);
+        }
+        
+        free(accelsX);
+        free(accelsY);
     } else if (TI->approxSurrogate) {
         if (self == 0) {
             printf("Running simulation with %d x %d surrogate bodies.\n", TI->px, TI->py);
