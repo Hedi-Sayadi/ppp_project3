@@ -47,7 +47,9 @@ static inline void acceleration_symmetric(int i, int j, const body *allBodies,
     long double f_y = G * dist_y / r3;
     ax[i] += f_x * allBodies[j].mass;
     ay[i] += f_y * allBodies[j].mass;
+#pragma omp atomic
     ax[j] -= f_x * allBodies[i].mass;
+#pragma omp atomic
     ay[j] -= f_y * allBodies[i].mass;
 }
 
