@@ -1,0 +1,25 @@
+# Build directories
+build/
+build-*/
+
+# Compiled files
+*.o
+*.exe
+*.out
+*.a
+*.so
+*.dll
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*~
