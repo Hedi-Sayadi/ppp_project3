@@ -115,6 +115,38 @@ static void compute_accelerations_local_n3(long double *accelsX, long double *ac
 }
 
 /*
+ * Compute accelerations with Newton's 3rd law globally.
+ * Each process computes symmetric pairs for local bodies with all bodies.
+ * MPI_Allreduce sums all local accelerations.
+ */
+static void compute_accelerations_global_n3(long double *accelsX, long double *accelsY) {
+    // Initialize all accelerations
+    #pragma omp parallel for
+    for (int i = 0; i < nBodies; ++i) {
+        accelsX[i] = 0.0L;
+        accelsY[i] = 0.0L;
+    }
+    
+    // Each process computes symmetric pairs for local bodies
+    long double *localAccX = (long double *)calloc(nBodies, sizeof(long double));
+    long double *localAccY = (long double *)calloc(nBodies, sizeof(long double));
+    
+    #pragma omp parallel for
+    for (int i = localStart; i < localEnd; ++i) {
+        for (int j = i + 1; j < nBodies; ++j) {
+            acceleration_symmetric(i, j, localAccX, localAccY);
+        }
+    }
+    
+    // Sum all local accelerations
+    MPI_Allreduce(localAccX, accelsX, nBodies, MPI_LONG_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(localAccY, accelsY, nBodies, MPI_LONG_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    
+    free(localAccX);
+    free(localAccY);
+}
+
+/*
  * Update the velocities for local bodies in the next time step.
  */
 static void update_velocities(long double *accelsX, long double *accelsY) {
@@ -261,6 +293,49 @@ void compute_parallel(struct TaskInput *TI) {
             printf("Running with Newton's third law globally.\n");
         }
         // Part (d): global Newton's 3rd law
+        
+        // Compute local range for this MPI process
+        localStart = self * nBodies / np;
+        localEnd = (self + 1) * nBodies / np;
+        localCount = localEnd - localStart;
+        
+        long double *accelsX = (long double *)malloc(nBodies * sizeof(long double));
+        long double *accelsY = (long double *)malloc(nBodies * sizeof(long double));
+        
+        // Preparation: compute accelerations in time step 0
+        compute_accelerations_global_n3(accelsX, accelsY);
+        for (int i = 0; i < nBodies; ++i) {
+            bodies[i].ax = accelsX[i];
+            bodies[i].ay = accelsY[i];
+        }
+        
+        for (int step = 0; step < TI->nSteps; ++step) {
+            if (imgStep > 0 && step % imgStep == 0) {
+                saveImage(step / imgStep, bodies, nBodies);
+            }
+            
+            if (debug && self == 0) {
+                printf("Time step %d\n", step);
+            }
+            
+            // Compute positions for next time step
+            update_positions();
+            gather_all_bodies();
+            
+            // Compute accelerations with global Newton's 3rd law
+            compute_accelerations_global_n3(accelsX, accelsY);
+            
+            // Compute velocities for next time step
+            update_velocities(accelsX, accelsY);
+            gather_all_bodies();
+        }
+        
+        if (imgStep > 0 && TI->nSteps % imgStep == 0) {
+            saveImage(TI->nSteps / imgStep, bodies, nBodies);
+        }
+        
+        free(accelsX);
+        free(accelsY);
     } else if (TI->newton3local) {
         if (self == 0) {
             printf("Running with Newton's third law locally.\n");
